@@ -1,562 +1,15 @@
-# Roblox Studio MCP Server (Enhanced Fork)
-
-> **Fork of [Roblox/studio-rust-mcp-server](https://github.com/Roblox/studio-rust-mcp-server) with additional tools for AI-assisted game development.**
-
-This fork adds new MCP tools that enable AI assistants to create complete, functional Roblox games. The upstream repository has not merged community contributions since July 2025.
-
----
-
-## ⚠️ IMPORTANT: Playtest Control Limitations
-
-**The MCP plugin runs in a separate DataModel from playtest mode.** This causes critical limitations:
-
-| Feature | Simulation (F8) | Playtest (F5) |
-|---------|-----------------|---------------|
-| `start_simulation` | ✅ Works | N/A |
-| `start_playtest` | N/A | ✅ Works |
-| `stop_simulation` | ✅ Works | ❌ No effect |
-| `stop_playtest` | ✅ Works | ❌ No effect |
-| `run_code` | ✅ Full access | ⚠️ Plugin context only |
-| `run_server_code` | N/A | ✅ Requires MCPServerCodeRunner |
-
-### To Enable Full Playtest Control
-
-Add **MCPServerCodeRunner** to your game's `ServerScriptService`:
-
-1. Copy `MCPServerCodeRunner.lua` from this repository to `ServerScriptService`
-2. Enable HttpService: Game Settings → Security → Allow HTTP Requests
-3. Now you can:
-   - Stop playtest: `run_server_code({ code = "game:GetService('StudioTestService'):EndTest('done')" })`
-   - Execute server-side code during playtest
-   - Access server-side `_G` values and game state
-
-**Without MCPServerCodeRunner**, you must manually press F6 or the Stop button to end playtest.
-
----
-
-## Additional Tools in This Fork
-
-### `write_script`
-
-Creates or updates Script, LocalScript, or ModuleScript instances with provided Luau source code.
-
-**Why this matters:** The official MCP server can only execute code via `run_code`, but cannot create or modify script source directly. This is because Roblox blocks direct `Script.Source` access. This tool uses `ScriptEditorService:UpdateSourceAsync()` - the officially supported method for writing script source in Studio plugins.
-
-**Parameters:**
-- `path` - Path to script in game hierarchy (e.g., `ServerScriptService.Managers.GameManager`)
-- `source` - The Luau source code to write
-- `script_type` (optional) - Type of script to create: `"Script"`, `"LocalScript"`, or `"ModuleScript"`. Defaults to `"Script"`. Only used when creating new scripts.
-
-**Features:**
-- Creates scripts in any service (ServerScriptService, ReplicatedStorage, StarterPlayerScripts, etc.)
-- Automatically creates intermediate folders for nested paths
-- Updates existing scripts with new source code
-
-**Example:**
-```
-write_script({
-  path: "ServerScriptService.GameManager",
-  source: "print('Hello from AI!')"
-})
-
-write_script({
-  path: "ReplicatedStorage.Utils.MathHelpers",
-  source: "local M = {} ... return M",
-  script_type: "ModuleScript"
-})
-```
-
-**Status:** [PR #52](https://github.com/Roblox/studio-rust-mcp-server/pull/52) submitted to upstream
-
----
-
-### `read_script`
-
-Reads the source code of an existing Script, LocalScript, or ModuleScript.
-
-**Why this matters:** Enables AI to understand existing code before modifying it, supports diff/patch workflows, and allows inspection of any script in the game hierarchy.
-
-**Parameters:**
-- `path` - Path to script in game hierarchy (e.g., `ServerScriptService.GameManager`)
-
-**Returns:** Full source code with metadata (script type, path, character count, line count)
-
-**Example:**
-```
-read_script({
-  path: "ServerScriptService.GameManager"
-})
--- Returns: [SUCCESS] Script at ServerScriptService.GameManager (150 chars, 12 lines)
--- <source code follows>
-```
-
-**Status:** [PR #52](https://github.com/Roblox/studio-rust-mcp-server/pull/52) submitted to upstream
-
----
-
-### `capture_screenshot`
-
-Captures a screenshot of the Roblox Studio window and returns it as a JPEG image.
-
-**Why this matters:** Enables AI assistants to visually inspect the game state, verify UI changes, debug visual issues, and analyze workspace layouts without manual screenshots.
-
-**Parameters:** None
-
-**Features:**
-- Captures the Studio window directly (no plugin communication needed)
-- Supports macOS and Windows
-- Returns high-quality JPEG (up to 1920px, quality 85)
-- Requires Screen Recording permission on macOS
-
-**Example:**
-```
-capture_screenshot({})
-```
-
----
-
-### `read_output`
-
-Reads captured output from Roblox Studio's Output window.
-
-**Why this matters:** Allows AI assistants to check for script errors, review print statements, and debug issues without manual intervention.
-
-**Parameters:**
-- `filter` (optional) - Filter by level: `"all"` (default), `"print"`, `"warn"`, or `"error"`
-- `max_lines` (optional) - Maximum lines to return (default: 1000, max: 10000)
-- `clear_after_read` (optional) - Clear buffer after reading (default: true)
-
-**Features:**
-- Captures print(), warn(), and error() messages during Edit and Play modes
-- Persistent buffer survives mode transitions
-- FIFO eviction with overflow warnings
-- Holds up to 10,000 messages
-
-**Example:**
-```
-read_output({ filter: "error", max_lines: 100 })
-```
-
----
-
-### `get_studio_state`
-
-Gets the current Studio mode (edit/play/run) to determine if workspace modifications are safe.
-
-**Parameters:** None
-
-**Returns:** JSON with mode, isEdit, isRunning, and canModify flags
-
-**Example:**
-```
-get_studio_state({})
-// Returns: {"mode":"edit","isEdit":true,"isRunning":false,"canModify":true}
-```
-
----
-
-### `start_playtest` / `start_simulation`
-
-Starts playtest or simulation mode.
-
-- `start_playtest` - Starts play mode (F5) with a player character
-- `start_simulation` - Starts run mode (F8) without a player (physics only)
-
-**Parameters:** None
-
-**Example:**
-```
-start_playtest({})
-```
-
----
-
-### `stop_simulation` / `stop_playtest`
-
-Stops playtest/simulation and returns to edit mode.
-
-**Parameters:** None
-
-**⚠️ Limitation:** `stop_playtest` only works for **simulation mode (F8)**, not playtest mode (F5). See [Playtest Control Limitations](#️-important-playtest-control-limitations) above.
-
-**To stop playtest programmatically:**
-```
-run_server_code({ code = "game:GetService('StudioTestService'):EndTest('done')" })
-```
-Requires MCPServerCodeRunner in your game.
-
----
-
-### `simulate_input`
-
-Simulates keyboard or mouse input during playtest via HTTP polling.
-
-**Why this matters:** Enables automated testing of gameplay that requires player input. Commands are queued and polled by the game.
-
-**Parameters:**
-- `input_type` - `"keyboard"` or `"mouse"`
-- `key` - Key name (`"W"`, `"Space"`, `"E"`) or mouse button (`"Left"`, `"Right"`)
-- `action` - `"begin"`, `"end"`, or `"tap"`
-- `mouse_x`, `mouse_y` (optional) - Mouse position for mouse input
-
-**Supported Keys:** A-Z, Space, Return, Tab, Escape, LeftShift, LeftControl, Arrow keys, F1-F12
-
-**Example:**
-```
-simulate_input({ input_type: "keyboard", key: "E", action: "tap" })
-```
-
-**Requires:** Game must include MCPInputPoller scripts (see below)
-
----
-
-### `click_gui`
-
-Simulates clicking a GUI element during playtest via HTTP polling.
-
-**Parameters:**
-- `path` - Path to GUI element (e.g., `"FluxUI.WelcomeMessage.PlayButton"`)
-
-**Example:**
-```
-click_gui({ path: "ScreenGui.PlayButton" })
-```
-
-**Requires:** Game must include MCPInputPoller scripts (see below)
-
----
-
-### `move_character`
-
-Moves or teleports a character in the workspace.
-
-**Parameters:**
-- `x`, `y`, `z` - Target world coordinates
-- `instant` (optional) - `true` for teleport, `false` for walk
-- `character_name` (optional) - Specific character to move
-
-**Example:**
-```
-move_character({ x: 0, y: 5, z: 10, instant: true, character_name: "Aria" })
-```
-
----
-
-### `run_server_code`
-
-Executes Luau code in the **server context** during playtest (not the plugin context).
-
-**Why this matters:** `run_code` executes in the plugin's DataModel, which is isolated from the running game during playtest. `run_server_code` executes in the actual game server, giving access to:
-- Server-side `_G` values set by your scripts
-- DataStores and other server-only services
-- The ability to call `StudioTestService:EndTest()` to stop playtest
-- Full game state from the server perspective
-
-**Parameters:**
-- `code` - Luau code to execute
-
-**Examples:**
-```lua
--- Check a server-side global value
-run_server_code({ code = "return _G.GameState" })
-
--- Get all players
-run_server_code({ code = "return game.Players:GetPlayers()" })
-
--- Stop playtest programmatically
-run_server_code({ code = "game:GetService('StudioTestService'):EndTest('done')" })
-```
-
-**Requires:** MCPServerCodeRunner script in ServerScriptService. See [Server Code Execution Setup](#server-code-execution-setup) below.
-
-### `validate_ui`
-
-Scans UI for common responsive layout issues. Returns a JSON report of problems found.
-
-**Parameters:**
-- `path` - Optional path to ScreenGui (e.g., `"StarterGui.MainUI"`). If not specified, validates all ScreenGuis.
-
-**Checks for:**
-- **Overlapping elements** - GUI elements that visually overlap
-- **Offscreen elements** - Elements extending beyond viewport boundaries
-- **Pixel positioning** - Using Offset without Scale (not responsive)
-- **Missing constraints** - Containers without UISizeConstraint
-- **Anchor mismatches** - AnchorPoint doesn't match Position alignment
-
-**Example prompt:** "Validate my UI for layout issues"
-
-### `create_responsive_layout`
-
-Creates a ScreenGui with best-practice responsive container structure.
-
-**Parameters:**
-- `name` - Name for the ScreenGui (e.g., `"MainUI"`)
-- `containers` - Array of positions: `"TopLeft"`, `"TopRight"`, `"TopCenter"`, `"BottomLeft"`, `"BottomRight"`, `"BottomCenter"`, `"CenterLeft"`, `"CenterRight"`, `"Center"`
-
-**Each container includes:**
-- Correct `AnchorPoint` and `Position` for its location
-- `UISizeConstraint` (Min 100x50, Max 400x600)
-- `UIListLayout` for automatic child arrangement
-- `UIPadding` for internal spacing
-
-**Example prompt:** "Create a responsive UI with containers in the top-left and bottom-center"
-
-### `preview_layout`
-
-Calculates what UI would look like at a specific viewport size without using Device Emulator.
-
-**Parameters:**
-- `width` - Target viewport width in pixels (e.g., `390` for iPhone 14)
-- `height` - Target viewport height in pixels (e.g., `844` for iPhone 14)
-- `path` - Optional path to ScreenGui. If not specified, previews all ScreenGuis.
-
-**Returns JSON with:**
-- Element positions and sizes at target viewport
-- `offscreen` flag for elements extending beyond viewport
-- `clipped` flag for partially visible elements
-- Summary of total elements and issues found
-
-**Example prompt:** "Preview my UI at iPhone 14 dimensions (390x844)"
-
----
-
-### `search_assets`
-
-Searches the Roblox marketplace and returns assets ranked by quality score.
-
-**Why this matters:** The existing `insert_model` tool just inserts the first search result without letting you evaluate options. `search_assets` returns multiple results with quality scoring based on favorites, creator verification, and recency - helping you find the best assets faster.
-
-**Parameters:**
-- `query` - Search query (e.g., "medieval castle", "tree", "sci-fi weapon")
-- `max_results` (optional) - Maximum results to return (default: 10, max: 20)
-
-**Returns:** Assets ranked by quality score, including:
-- Favorites count (fetched from Roblox catalog API)
-- Creator verification status (✓ badge)
-- Quality score (based on favorites, verification, recency, description)
-
-**Quality Score Factors:**
-- **Favorites** (logarithmic): Higher favorites = higher score, with diminishing returns
-- **Verified Creator** (+20 points): Assets from verified creators rank higher
-- **Recency** (up to +15 points): Recently updated assets get a bonus
-- **Description Quality** (up to +10 points): Well-documented assets score better
-
-**Example:**
-```
-search_assets({ query: "medieval castle", max_results: 5 })
-// Returns:
-// 1. Medieval Castle Gate (ID: 4681785203)
-//    Creator: Glectic | ⭐ 11 favorites | Score: 24.0
-// 2. Medieval Castle Wall (ID: 249012759)
-//    Creator: Auzer | ⭐ 5 favorites | Score: 16.1
-// ...
-```
-
-**Status:** [PR #70](https://github.com/Roblox/studio-rust-mcp-server/pull/70) submitted to upstream
-
----
-
-### `preview_asset`
-
-Previews an asset by inserting it into the workspace temporarily. Allows you to evaluate what an asset looks like before committing to it.
-
-**Why this matters:** Combines with `search_assets` to enable a proper discovery workflow: search → preview candidates → compare → keep the winner.
-
-**Parameters:**
-- `asset_id` - The asset ID (from search_assets results)
-- `keep` (optional) - If true, keeps the asset permanently; if false/omitted, removes on next preview
-
-**Returns:** Asset metadata including class type, bounding box size, child counts, and contents.
-
-**Features:**
-- Positions asset in front of camera for visibility
-- Auto-cleans previous preview when previewing a new asset
-- Returns detailed metadata for programmatic use
-
-**Example workflow:**
-```
-search_assets({ query: "tree" })
-// Returns: 1. Tree House (ID: 125459331), 2. Tree (ID: 580221169), ...
-
-preview_asset({ asset_id: 580221169 })
-// Returns: Model, 39.7 x 38.3 x 39.3 studs, 38 descendants
-
-preview_asset({ asset_id: 125459331 })
-// Previous preview removed, now showing Tree House
-
-preview_asset({ asset_id: 580221169, keep: true })
-// Keeps this tree permanently in workspace
-```
-
-**Status:** [PR #70](https://github.com/Roblox/studio-rust-mcp-server/pull/70) submitted to upstream
-
----
-
-## Server Code Execution Setup
-
-To enable `run_server_code` and programmatic playtest stopping, add **MCPServerCodeRunner** to your game:
-
-1. **Enable HttpService:** Game Settings → Security → Allow HTTP Requests
-
-2. **Add MCPServerCodeRunner** (Script) to `ServerScriptService`:
-   - Copy `MCPServerCodeRunner.lua` from this repository
-   - The script polls `localhost:44755/mcp/server_code` for commands
-   - Executes code using `loadstring()` and returns results
-
-**Verification:**
-- Start playtest (F5)
-- Check output for `[MCPServerCodeRunner] Starting server code poll loop`
-- Test with: `run_server_code({ code = "return 'Hello from server!'" })`
-
-**Security Note:** MCPServerCodeRunner executes arbitrary code. Only use during local development. Do NOT include in published games.
-
----
-
-## Input Simulation Setup
-
-Input simulation (`simulate_input`, `click_gui`) uses HTTP polling because:
-- HTTP requests can only be made from ServerScripts
-- Input must be executed on the client
-- Roblox's DataModel isolation prevents direct communication during playtest
-
-**Setup:**
-
-1. Enable HttpService: Game Settings → Security → Allow HTTP Requests
-2. Use `simulate_input` or `click_gui` - **scripts are auto-installed** on first use
-3. Restart playtest (F5) to load the newly installed scripts
-
-**Auto-installed Scripts:**
-
-| Script | Location | Purpose |
-|--------|----------|---------|
-| MCPInputPoller | ServerScriptService | Polls `localhost:44755/mcp/input` for commands, relays to clients |
-| MCPInputHandler | StarterPlayerScripts | Receives commands, fires `MCPInputReceived` BindableEvent |
-| MCPMovementHandler | StarterPlayerScripts | Translates WASD/Space input into character movement |
-| MCPClickSupport | ReplicatedStorage | ModuleScript for handling both real and MCP GUI clicks |
-
-**MCPClickSupport Usage:**
-
-For buttons that need to respond to both real clicks and `click_gui`:
-
-```lua
-local MCP = require(game.ReplicatedStorage.MCPClickSupport)
-
-MCP.onClick(button, function()
-    print("Button clicked!")
-end)
-```
-
-This replaces `button.MouseButton1Click:Connect()` and handles both input sources.
-
-**Custom Ability Integration:**
-
-To trigger abilities via MCP input, listen to the `MCPInputReceived` BindableEvent:
-
-```lua
-local mcpEvent = game.ReplicatedStorage:WaitForChild("MCPInputReceived")
-mcpEvent.Event:Connect(function(inputInfo)
-    if inputInfo.KeyCode == Enum.KeyCode.E and inputInfo.UserInputState == Enum.UserInputState.Begin then
-        -- Trigger ability
-    end
-end)
-```
-
-**Verification:**
-- Check output for `[MCPPoller] Started - polling`
-- Check output for `[MCPInput] Client handler ready!`
-- Check output for `[MCPMovement] Handler ready - WASD and Space supported`
-- Send `simulate_input` and verify `[MCPPoller] Got 1 commands!`
-
----
-
-## Upstream Tools
-
-This fork includes all tools from the official repository:
-
-- **`run_code`** - Execute Luau code in Studio and capture output
-- **`insert_model`** - Insert models from the Roblox marketplace
-
----
-
-## Installation
-
-### Build from source (recommended for this fork)
-
-1. Ensure you have [Roblox Studio](https://create.roblox.com/docs/en-us/studio/setup) and [Claude Desktop](https://claude.ai/download) or [Claude Code](https://claude.ai/code) installed.
-2. Exit Claude and Roblox Studio if running.
-3. [Install Rust](https://www.rust-lang.org/tools/install).
-4. Clone this repository:
-   ```sh
-   git clone https://github.com/kevinswint/roblox-studio-rust-mcp-server.git
-   cd roblox-studio-rust-mcp-server
-   ```
-5. Build and install:
-   ```sh
-   cargo run
-   ```
-
-This builds the MCP server, installs the Studio plugin, and configures Claude.
-
-### Verify setup
-
-1. Open Roblox Studio and check the **Plugins** tab for the MCP plugin
-2. In Claude, verify tools are available: `run_code`, `insert_model`, `write_script`, `read_script`, `capture_screenshot`, `read_output`, `get_studio_state`, `start_playtest`, `start_simulation`, `stop_simulation`, `stop_playtest`
-
----
-
-## Keeping in Sync with Upstream
-
-This fork stays up-to-date with the official repository:
-
-```sh
-git fetch upstream
-git merge upstream/main
-```
-
----
-
-## Contributing
-
-Contributions welcome! If you have improvements:
-
-1. Consider submitting PRs to [upstream](https://github.com/Roblox/studio-rust-mcp-server) first
-2. If upstream is unresponsive, PRs to this fork are welcome
-
----
-
-## Future Enhancement Ideas
-
-The following features would improve the MCP workflow but are not yet implemented:
-
-### 1. Reliable Playtest Stop (F6 equivalent)
-
-**Problem:** `stop_playtest` only works for simulation mode (F8), not playtest mode (F5). Users must manually press F6 to stop playtest.
-
-**Potential Solution:**
-- Expose `StudioTestService:EndTest()` more reliably from the plugin context
-- Or create a native Rust command that sends keystrokes (F6) to the Studio window
-- The `run_server_code` workaround exists but requires MCPServerCodeRunner setup
-
-### 2. Restart Studio Programmatically
-
-**Problem:** Sometimes Studio needs a full restart (stale state, plugin issues, etc.). Currently requires manual intervention.
-
-**Potential Solution:**
-- Create an external helper that can:
-  - Close Roblox Studio gracefully
-  - Relaunch Studio with the same place file
-  - Wait for MCP plugin to reconnect
-- On macOS: Use AppleScript or `osascript` commands
-- On Windows: Use PowerShell or native Windows APIs
-- Would need to persist the current place file path for reopening
-
----
-
-## Original README
-
-*The following is from the original Roblox repository:*
-
----
+> [!WARNING]
+> ### This MCP Server is no longer being actively developed
+> 
+> We’ve shifted ongoing engineering investment to the [built-in MCP Server included with Roblox Studio](https://create.roblox.com/docs/studio/mcp), which we recommend as the best way to connect external AI tools going forward.
+>
+>This server’s source code and previous releases will remain available here for reference and existing workflows.
+
+
+# Quick Setup
+1. Download and Run the server: [Windows](https://github.com/Roblox/studio-rust-mcp-server/releases/latest/download/rbx-studio-mcp.exe) or [macOS](https://github.com/Roblox/studio-rust-mcp-server/releases/latest/download/macOS-rbx-studio-mcp.zip)
+2. Restart AI Client (Claude, Cursor, etc) and Roblox Studio
+3. Done!
 
 # Roblox Studio MCP Server
 
@@ -577,7 +30,36 @@ subject to their respective terms and conditions.
 
 ![Scheme](MCP-Server.png)
 
-The setup process also contains a short plugin installation and Claude Desktop configuration script.
+The setup process also contains a small plugin installation and Claude Desktop configuration script.
+
+### Included tools
+
+- **run_code** - Runs a command in Roblox Studio and returns the printed output. Can be used to both make changes and retrieve information.
+- **insert_model** - Inserts a model from the Roblox Creator Store into the workspace. Returns the inserted model name.
+- **get_console_output** - Gets the console output from Roblox Studio.
+- **start_stop_play** - Starts or stops play mode or runs the server.
+- **run_script_in_play_mode** - Runs a script in play mode and automatically stops play after the script finishes or times out. Returns structured output including logs, errors, and duration.
+- **get_studio_mode** - Gets the current Studio mode (`start_play`, `run_server`, or `stop`).
+- **search_assets** - Searches the Roblox Creator Store through the Toolbox Service API across Models, MeshParts, Decals, Audio, Plugins, Video, and Fonts by default. This intentionally avoids the legacy `InsertService:GetFreeModels` search path, which only surfaces a narrow free-model index and gives coding agents poor marketplace coverage.
+
+### Search-only wrapper for coding agents
+
+For agentic coding workflows that only need Creator Store discovery, use the bundled wrapper instead of exposing every Studio mutation tool:
+
+```json
+{
+  "mcpServers": {
+    "Roblox_Search": {
+      "command": "node",
+      "args": [
+        "/path/to/roblox-studio-rust-mcp-server/tools/search_only_mcp_filter.js"
+      ]
+    }
+  }
+}
+```
+
+The wrapper filters the MCP tool list down to `search_assets` and rejects calls to mutation tools. Set `ROBLOX_STUDIO_MCP_BIN` if the compiled `rbx-studio-mcp` binary is not at `target/release/rbx-studio-mcp`.
 
 ## Setup
 
@@ -603,7 +85,7 @@ To set up manually add following to your MCP Client config:
 ```json
 {
   "mcpServers": {
-    "Roblox Studio": {
+    "Roblox_Studio": {
       "args": [
         "--stdio"
       ],
@@ -614,6 +96,14 @@ To set up manually add following to your MCP Client config:
 ```
 
 On macOS the path would be something like `"/Applications/RobloxStudioMCP.app/Contents/MacOS/rbx-studio-mcp"` if you move the app to the Applications directory.
+
+For Claude Desktop, go to Settings > Developer > Edit Config. This opens location of the  `claude_desktop_config.json`.
+
+Some clients require user to setup the mcp server manually for each project.
+For example, Claude Code command would look like this:
+```sh
+claude mcp add --transport stdio Roblox_Studio -- '/Applications/RobloxStudioMCP.app/Contents/MacOS/rbx-studio-mcp' --stdio
+```
 
 ### Build from source
 
@@ -648,7 +138,7 @@ To make sure everything is set up correctly, follow these steps:
    which you can also verify in the console output.
 1. Verify that Claude Desktop is correctly configured by clicking on the hammer icon for MCP tools
    beneath the text field where you enter prompts. This should open a window with the list of
-   available Roblox Studio tools (`run_code`, `insert_model`, `search_assets`, `preview_asset`).
+   available Roblox Studio tools (`insert_model` and `run_code`).
 
 **Note**: You can fix common issues with setup by restarting Studio and Claude Desktop. Claude
 sometimes is hidden in the system tray, so ensure you've exited it completely.
@@ -659,33 +149,3 @@ sometimes is hidden in the system tray, so ensure you've exited it completely.
 1. Type a prompt in Claude Desktop and accept any permissions to communicate with Studio.
 1. Verify that the intended action is performed in Studio by checking the console, inspecting the
    data model in Explorer, or visually confirming the desired changes occurred in your place.
-
-## Available Tools
-
-### run_code
-Executes Luau code in the Studio plugin context and returns printed output.
-
-### insert_model
-Searches the Roblox marketplace and inserts the first matching model into the workspace.
-
-### search_assets
-Searches the Roblox marketplace and returns assets ranked by quality score.
-
-**Parameters:**
-- `query`: Search query (e.g., "medieval castle", "sci-fi weapon")
-- `max_results`: Maximum results to return (default: 10, max: 20)
-
-**Returns:** Assets ranked by quality score with favorites count, creator verification status, and score. Quality scoring considers favorites (logarithmic), verified creators (+20), recency (up to +15), and description quality (up to +10).
-
-**Example prompt:** "Search for tree assets and show me the options"
-
-### preview_asset
-Previews an asset by inserting it into the workspace. Allows you to see what an asset looks like before committing to it.
-
-**Parameters:**
-- `asset_id`: The asset ID (from search_assets results)
-- `keep`: If true, keeps the asset; if false/omitted, removes on next preview
-
-**Returns:** Asset metadata including type, size, and contents. Use `capture_screenshot` (if available) to see it visually.
-
-**Example prompt:** "Preview asset 123456789 so I can see what it looks like"

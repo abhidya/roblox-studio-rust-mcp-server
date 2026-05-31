@@ -6,95 +6,26 @@ export type RunCodeArgs = {
 	command: string,
 }
 
-export type WriteScriptArgs = {
-	path: string,
-	source: string,
+export type TestMode = "start_play" | "run_server"
+
+export type StartStopPlayMode = TestMode | "stop"
+
+export type StartStopPlayArgs = {
+	mode: StartStopPlayMode,
 }
 
-export type ReadScriptArgs = {
-	path: string,
-}
-
-export type ReadOutputArgs = {
-	filter: string?, -- "all" | "print" | "warn" | "error"
-	max_lines: number?, -- Maximum number of lines to return (default: 1000)
-	clear_after_read: boolean?, -- Clear buffer after reading (default: true)
-}
-
-export type GetStudioStateArgs = {}
-
-export type StartPlaytestArgs = {}
-
-export type StartSimulationArgs = {}
-
-export type StopSimulationArgs = {}
-
-export type StopPlaytestArgs = {}
-
-export type MoveCharacterArgs = {
-	x: number,
-	y: number,
-	z: number,
-	instant: boolean?, -- If true, teleport. If false/nil, walk to position
-	character_name: string?, -- Optional character name, otherwise moves first character found
-}
-
-export type SimulateInputArgs = {
-	input_type: string, -- "keyboard" or "mouse"
-	key: string, -- Key name (e.g., "W", "Space") or mouse button ("Left", "Right")
-	action: string, -- "begin", "end", or "tap"
-	mouse_x: number?, -- Mouse X position (for mouse input)
-	mouse_y: number?, -- Mouse Y position (for mouse input)
-}
-
-export type ClickGuiArgs = {
-	path: string, -- Path to GUI element (e.g., "PlayerGui.MainUI.Button")
-}
-
-export type ValidateUIArgs = {
-	path: string?, -- Optional path to ScreenGui to validate
-}
-
-export type CreateResponsiveLayoutArgs = {
-	name: string, -- Name for the ScreenGui
-	containers: {string}, -- Array of container positions to create
-}
-
-export type PreviewLayoutArgs = {
-	width: number, -- Target viewport width in pixels
-	height: number, -- Target viewport height in pixels
-	path: string?, -- Optional path to specific ScreenGui
-}
-
-export type SearchAssetsArgs = {
-	query: string,
-	max_results: number?,
-}
-
-export type PreviewAssetArgs = {
-	asset_id: number,
-	keep: boolean?,
+export type RunScriptInPlayModeArgs = {
+	code: string,
+	timeout: number?,
+	mode: TestMode,
 }
 
 export type ToolArgs =
-	{ InsertModel: InsertModelArgs }
+	{}
+	| { InsertModel: InsertModelArgs }
 	| { RunCode: RunCodeArgs }
-	| { WriteScript: WriteScriptArgs }
-	| { ReadScript: ReadScriptArgs }
-	| { ReadOutput: ReadOutputArgs }
-	| { GetStudioState: GetStudioStateArgs }
-	| { StartPlaytest: StartPlaytestArgs }
-	| { StartSimulation: StartSimulationArgs }
-	| { StopSimulation: StopSimulationArgs }
-	| { StopPlaytest: StopPlaytestArgs }
-	| { MoveCharacter: MoveCharacterArgs }
-	| { SimulateInput: SimulateInputArgs }
-	| { ClickGui: ClickGuiArgs }
-	| { ValidateUI: ValidateUIArgs }
-	| { CreateResponsiveLayout: CreateResponsiveLayoutArgs }
-	| { PreviewLayout: PreviewLayoutArgs }
-	| { SearchAssets: SearchAssetsArgs }
-	| { PreviewAsset: PreviewAssetArgs }
+	| { StartStopPlay: StartStopPlayArgs }
+	| { RunScriptInPlayMode: RunScriptInPlayModeArgs }
 
 export type ToolFunction = (ToolArgs) -> string?
 

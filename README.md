@@ -126,6 +126,24 @@ To build and install the MCP reference implementation from this repository's sou
 After the command completes, the Studio MCP Server is installed and ready for your prompts from
 Claude Desktop.
 
+### Developer verification
+
+For source-only validation without installing the Studio plugin or changing MCP
+client config, run:
+
+```sh
+cargo check
+cargo test
+```
+
+`cargo run` performs installation/configuration side effects, so use it only when
+you intentionally want to build and install the local server/plugin on this
+machine. The search-only wrapper can be inspected independently with:
+
+```sh
+node --check tools/search_only_mcp_filter.js
+```
+
 ## Verify setup
 
 To make sure everything is set up correctly, follow these steps:
